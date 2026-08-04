@@ -70,12 +70,6 @@
     display: flex; align-items: center; gap: 4px;
   }
   .upcoming-list { display: flex; flex-direction: column; gap: 8px; }
-  .notice-bar {
-    background: rgba(30,34,72,0.03); border: 1px solid var(--border);
-    border-radius: 8px; padding: 10px 14px; font-size: 12px;
-    color: var(--navy-muted); line-height: 1.5; margin-bottom: 2px;
-  }
-  .notice-bar strong { color: var(--navy); font-weight: 600; }
   .upcoming-card {
     display: flex; gap: 14px; align-items: flex-start; padding: 14px 16px;
     border: 1px solid var(--border); border-radius: 10px; background: var(--bg-white);
@@ -97,6 +91,7 @@
     font-weight: 500; display: flex; align-items: center; gap: 4px;
   }
   .empty-state { text-align: center; padding: 32px; color: var(--navy-muted); font-size: 14px; }
+  .loading-state { text-align: center; padding: 40px; color: var(--navy-muted); font-size: 14px; }
   .hidden { display: none; }
 </style>
 </head>
@@ -111,7 +106,9 @@
   </div>
   <div id="schedule-view">
     <div class="grid-scroll">
-      <div class="schedule-grid" id="schedule-grid"></div>
+      <div class="schedule-grid" id="schedule-grid">
+        <div class="loading-state" style="grid-column: 1 / -1;">Loading calendar...</div>
+      </div>
     </div>
     <div class="legend" id="legend"></div>
   </div>
@@ -121,47 +118,12 @@
 </div>
 
 <script>
-/*
-  ╔══════════════════════════════════════════════════╗
-  ║  LOBO CARDS CALENDAR WIDGET                      ║
-  ║                                                  ║
-  ║  Events are pulled from Google Calendar.         ║
-  ║  Recurring events show normally.                 ║
-  ║  One-off events get a ★ marker.                  ║
-  ║  Off-site events show "hosted at [name]".        ║
-  ║  Just use Google Calendar's Location field.      ║
-  ╚══════════════════════════════════════════════════╝
-*/
 var CONFIG = {
   apiKey: 'AIzaSyAuuwRzXjBi_4FcQt05FEVdtAouL9Bbj48',
   calendarId: '087a5fca909d7b1e1a94f9172a40183bb766d67153f6c86c780b375a98b09a53@group.calendar.google.com',
   maxResults: 50
 };
 
-// ── Fallback schedule (shown only if API call fails) ──
-var FALLBACK_SCHEDULE = [
-  { day: 'Monday',    events: [{ game: 'One Piece', time: '7:00 PM' }] },
-  { day: 'Tuesday',   events: [{ game: 'Gundam', time: '7:30 PM' }] },
-  { day: 'Wednesday', events: [{ game: 'One Piece', time: '7:30 PM' }] },
-  { day: 'Thursday',  events: [
-    { game: 'Pokemon', time: '7:00 PM' },
-    { game: 'Riftbound', time: '6:30 PM' }
-  ]},
-  { day: 'Friday', events: [
-    { game: 'Lorcana', time: '7:00 PM' },
-    { game: 'Union Arena', time: '7:30 PM' }
-  ]},
-  { day: 'Saturday', events: [
-    { game: 'MTG Commander', time: 'All Day' },
-    { game: 'Digimon', time: '6:00 PM' }
-  ]},
-  { day: 'Sunday', events: [
-    { game: 'Free Play', time: '12:00 PM' },
-    { game: 'MTG Draft', time: '1:00 PM' }
-  ]}
-];
-
-// ── Game colors (bright for white bg) ──
 var GAME_COLORS = {
   'one piece': '#e63946',
   'gundam': '#4895ef',
@@ -182,7 +144,6 @@ var GAME_COLORS = {
 var SHOP_KEYWORDS = ['1921', 'colonial', 'lobo'];
 var DAY_NAMES = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 
-// ── Helpers ──
 function getGameColor(name) {
   var lower = name.toLowerCase();
   var entries = Object.entries(GAME_COLORS);
@@ -236,19 +197,12 @@ function esc(str) {
   return d.innerHTML;
 }
 
-// ── State ──
 var weekDates = getWeekDates();
 var todayDow = new Date().getDay();
 var todayIndex = todayDow === 0 ? 6 : todayDow - 1;
 var activeTab = 'schedule';
-
-// Schedule data: array of 7 days, each with an events array
-var scheduleData = null; // null = not yet loaded
-var upcomingData = [];
-var calendarConnected = false;
 var hasSpecialEvents = false;
 
-// ── Build event card HTML ──
 function eventCardHTML(name, time, opts) {
   opts = opts || {};
   var color = getGameColor(name);
@@ -266,22 +220,21 @@ function eventCardHTML(name, time, opts) {
   return html;
 }
 
-// ── Render schedule grid ──
-function renderSchedule() {
+function renderSchedule(weekGrid) {
   var grid = document.getElementById('schedule-grid');
-  var data = scheduleData || FALLBACK_SCHEDULE.map(function(d) {
-    return { day: d.day, events: d.events.map(function(e) {
-      return { title: e.game, time: e.time, special: false, location: null };
-    })};
-  });
+
+  if (!weekGrid) {
+    grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;">Unable to load calendar. Please try again later.</div>';
+    document.getElementById('legend').innerHTML = '';
+    return;
+  }
 
   var html = '';
   for (var i = 0; i < 7; i++) {
-    var dayData = data[i];
+    var dayData = weekGrid[i];
     var isToday = i === todayIndex;
-    var todayClass = isToday ? ' today-col' : '';
 
-    html += '<div class="day-col' + todayClass + '">';
+    html += '<div class="day-col' + (isToday ? ' today-col' : '') + '">';
     html += '<div class="day-header' + (isToday ? ' today' : '') + '">';
     html += '<div class="day-name">' + DAY_NAMES[i] + '</div>';
     html += '<div class="day-date">' + formatShortDate(weekDates[i]) + '</div>';
@@ -289,7 +242,7 @@ function renderSchedule() {
     html += '<div class="day-events"' + (isToday ? ' style="background:rgba(30,34,72,0.03)"' : '') + '>';
 
     if (dayData.events.length === 0) {
-      html += '<div style="font-size:11px; color:var(--navy-muted); padding:4px 0; font-style:italic;">No events</div>';
+      html += '<div style="font-size:11px;color:var(--navy-muted);padding:4px 0;font-style:italic;">No events</div>';
     } else {
       for (var j = 0; j < dayData.events.length; j++) {
         var evt = dayData.events[j];
@@ -303,48 +256,39 @@ function renderSchedule() {
   grid.innerHTML = html;
 
   var legend = document.getElementById('legend');
-  if (!calendarConnected) {
-    legend.innerHTML = 'Showing saved schedule. Live calendar could not be reached.';
-  } else if (hasSpecialEvents) {
-    legend.innerHTML = '<span class="star">★</span> = special event';
-  } else {
-    legend.innerHTML = '';
-  }
+  legend.innerHTML = hasSpecialEvents ? '<span class="star">★</span> = special event' : '';
 }
 
-// ── Render upcoming events ──
-function renderUpcoming() {
+function renderUpcoming(upcoming) {
   var list = document.getElementById('upcoming-list');
-  var html = '';
 
-  if (!calendarConnected) {
-    html += '<div class="notice-bar"><strong>Calendar not connected.</strong> Showing fallback schedule on the This Week tab.</div>';
+  if (!upcoming || upcoming.length === 0) {
+    list.innerHTML = '<div class="empty-state">No upcoming special events.</div>';
+    return;
   }
 
-  if (upcomingData.length === 0) {
-    html += '<div class="empty-state">No upcoming special events.</div>';
-  } else {
-    for (var i = 0; i < upcomingData.length; i++) {
-      var evt = upcomingData[i];
-      var offSite = isOffSite(evt.location);
-      var locName = offSite ? extractLocationName(evt.location) : null;
+  var html = '';
+  for (var i = 0; i < upcoming.length; i++) {
+    var evt = upcoming[i];
+    var offSite = isOffSite(evt.location);
+    var locName = offSite ? extractLocationName(evt.location) : null;
 
-      html += '<div class="upcoming-card">';
-      html += '<div class="upcoming-date-badge">';
-      html += '<div class="upcoming-date-text">' + esc(evt.date) + '</div>';
-      html += '<div class="upcoming-time-text">' + esc(evt.time) + '</div>';
-      html += '</div><div>';
-      html += '<div class="upcoming-title"><span class="star">★</span>' + esc(evt.title) + '</div>';
-      if (evt.desc) html += '<div class="upcoming-desc">' + esc(evt.desc) + '</div>';
-      if (locName) html += '<div class="upcoming-location"><span>📍</span> hosted at ' + esc(locName) + '</div>';
-      html += '</div></div>';
-    }
+    html += '<div class="upcoming-card">';
+    html += '<div class="upcoming-date-badge">';
+    html += '<div class="upcoming-date-text">' + esc(evt.date) + '</div>';
+    html += '<div class="upcoming-time-text">' + esc(evt.time) + '</div>';
+    html += '</div><div>';
+    html += '<div class="upcoming-title"><span class="star">★</span>' + esc(evt.title) + '</div>';
+    if (evt.desc) html += '<div class="upcoming-desc">' + esc(evt.desc) + '</div>';
+    if (locName) html += '<div class="upcoming-location"><span>📍</span> hosted at ' + esc(locName) + '</div>';
+    html += '</div></div>';
   }
 
   list.innerHTML = html;
 }
 
 // ── Tab switching ──
+var storedUpcoming = [];
 document.querySelectorAll('.tab-btn').forEach(function(btn) {
   btn.addEventListener('click', function() {
     document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
@@ -352,11 +296,11 @@ document.querySelectorAll('.tab-btn').forEach(function(btn) {
     activeTab = btn.dataset.tab;
     document.getElementById('schedule-view').classList.toggle('hidden', activeTab !== 'schedule');
     document.getElementById('upcoming-view').classList.toggle('hidden', activeTab !== 'upcoming');
-    if (activeTab === 'upcoming') renderUpcoming();
+    if (activeTab === 'upcoming') renderUpcoming(storedUpcoming);
   });
 });
 
-// ── Fetch from Google Calendar ──
+// ── Fetch everything from Google Calendar ──
 function fetchCalendarEvents() {
   var weekStart = new Date(weekDates[0]);
   weekStart.setHours(0, 0, 0, 0);
@@ -378,52 +322,53 @@ function fetchCalendarEvents() {
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (!data.items || data.error) {
-        renderSchedule();
+        renderSchedule(null);
         return;
       }
 
-      calendarConnected = true;
-
-      // Build the 7-day schedule from calendar data
       var weekGrid = [];
       for (var d = 0; d < 7; d++) {
-        weekGrid.push({ day: DAY_NAMES[d], events: [] });
+        weekGrid.push({ events: [] });
       }
-
       var upcoming = [];
 
       for (var i = 0; i < data.items.length; i++) {
         var item = data.items[i];
-        var start = new Date(item.start.dateTime || item.start.date);
-        var loc = item.location || null;
+        var start;
+        var isAllDay = !item.start.dateTime;
+        if (isAllDay) {
+          // Parse date-only strings as local time to avoid UTC timezone shift
+          var parts = item.start.date.split('-');
+          start = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+        } else {
+          start = new Date(item.start.dateTime);
+        }
         var isRecurring = !!item.recurringEventId;
         var title = item.summary || 'Event';
+        var loc = item.location || null;
         var desc = item.description || '';
 
         var timeStr = item.start.dateTime
           ? start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
           : 'All Day';
 
-        var dateStr = start.toLocaleDateString('en-US', {
-          weekday: 'short', month: 'short', day: 'numeric'
-        });
-
-        // Current week events go on the grid
+        // This week → grid
         if (start >= weekStart && start <= weekEnd) {
           var dayIdx = start.getDay() === 0 ? 6 : start.getDay() - 1;
           weekGrid[dayIdx].events.push({
             title: title,
             time: timeStr,
             special: !isRecurring,
-            location: loc
+            location: loc,
+            sortTime: start.getTime()
           });
         }
 
-        // Non-recurring events beyond this week go to upcoming
+        // Non-recurring beyond this week → upcoming
         if (!isRecurring && start > weekEnd) {
           upcoming.push({
             title: title,
-            date: dateStr,
+            date: start.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
             time: timeStr,
             desc: desc,
             location: loc
@@ -431,26 +376,23 @@ function fetchCalendarEvents() {
         }
       }
 
-      // Sort each day's events by time (recurring first, then specials)
+      // Sort each day by time, recurring first then specials
       for (var d = 0; d < 7; d++) {
         weekGrid[d].events.sort(function(a, b) {
           if (a.special !== b.special) return a.special ? 1 : -1;
-          return 0;
+          return a.sortTime - b.sortTime;
         });
       }
 
-      scheduleData = weekGrid;
-      upcomingData = upcoming;
-      renderSchedule();
-      if (activeTab === 'upcoming') renderUpcoming();
+      storedUpcoming = upcoming;
+      renderSchedule(weekGrid);
+      if (activeTab === 'upcoming') renderUpcoming(upcoming);
     })
     .catch(function() {
-      calendarConnected = false;
-      renderSchedule();
+      renderSchedule(null);
     });
 }
 
-// ── Init ──
 fetchCalendarEvents();
 </script>
 </body>
