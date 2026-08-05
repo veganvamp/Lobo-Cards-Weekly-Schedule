@@ -18,7 +18,7 @@
     --border: #d8dae5;
     --bg-white: #ffffff;
     --bg-off: #f5f6fa;
-    --gold: #c9a84c;
+    --gold: #e4b62e;
   }
   .widget { max-width: 960px; margin: 0 auto; }
   .tab-bar { display: flex; justify-content: flex-end; margin-bottom: 14px; }
@@ -364,8 +364,10 @@ function fetchCalendarEvents() {
           });
         }
 
-        // Non-recurring beyond this week → upcoming
-        if (!isRecurring && start > weekEnd) {
+        // Non-recurring from today onward → upcoming
+        var todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        if (!isRecurring && start >= todayStart) {
           upcoming.push({
             title: title,
             date: start.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
