@@ -58,6 +58,9 @@
   }
   .today-col .day-events { background: rgba(30,34,72,0.03); }
   .event-card { border-radius: 0 6px 6px 0; padding: 7px 9px; border-left: 3px solid #90959f; }
+  .event-card.clickable { cursor: pointer; transition: filter 0.15s ease; }
+  .event-card.clickable:hover { filter: brightness(0.95); }
+  a.event-link { text-decoration: none; color: inherit; display: block; }
   .event-name {
     font-size: 12px; font-weight: 600; color: var(--navy);
     display: flex; align-items: center; gap: 4px; line-height: 1.3;
@@ -74,6 +77,9 @@
     display: flex; gap: 14px; align-items: flex-start; padding: 14px 16px;
     border: 1px solid var(--border); border-radius: 10px; background: var(--bg-white);
   }
+  .upcoming-card.clickable { cursor: pointer; transition: border-color 0.15s ease; }
+  .upcoming-card.clickable:hover { border-color: var(--navy-muted); }
+  a.upcoming-link { text-decoration: none; color: inherit; display: block; }
   .upcoming-date-badge {
     background: var(--bg-off); border: 1px solid var(--border);
     border-radius: 8px; padding: 8px 10px; text-align: center;
@@ -197,6 +203,16 @@ function esc(str) {
   return d.innerHTML;
 }
 
+function extractUrl(desc) {
+  if (!desc) return null;
+  // Check for href attribute first (Google Calendar sometimes returns HTML descriptions)
+  var hrefMatch = desc.match(/href=["']?(https?:\/\/[^\s"'<>]+)/i);
+  if (hrefMatch) return hrefMatch[1];
+  // Fall back to plain URL in text
+  var urlMatch = desc.match(/https?:\/\/[^\s<>"]+/i);
+  return urlMatch ? urlMatch[0] : null;
+}
+
 var weekDates = getWeekDates();
 var todayDow = new Date().getDay();
 var todayIndex = todayDow === 0 ? 6 : todayDow - 1;
@@ -209,14 +225,18 @@ function eventCardHTML(name, time, opts) {
   var bgColor = hexToRgba(color, 0.06);
   var offSite = opts.special && isOffSite(opts.location);
   var locName = offSite ? extractLocationName(opts.location) : null;
+  var hasLink = opts.special && opts.url;
 
-  var html = '<div class="event-card" style="border-left-color:' + color + '; background:' + bgColor + '">';
+  var html = '';
+  if (hasLink) html += '<a class="event-link" href="' + esc(opts.url) + '" target="_blank" rel="noopener">';
+  html += '<div class="event-card' + (hasLink ? ' clickable' : '') + '" style="border-left-color:' + color + '; background:' + bgColor + '">';
   html += '<div class="event-name">';
   if (opts.special) { html += '<span class="star">★</span>'; hasSpecialEvents = true; }
   html += esc(name) + '</div>';
   html += '<div class="event-time">' + esc(time) + '</div>';
   if (locName) html += '<div class="event-location">📍 hosted at ' + esc(locName) + '</div>';
   html += '</div>';
+  if (hasLink) html += '</a>';
   return html;
 }
 
@@ -246,7 +266,7 @@ function renderSchedule(weekGrid) {
     } else {
       for (var j = 0; j < dayData.events.length; j++) {
         var evt = dayData.events[j];
-        html += eventCardHTML(evt.title, evt.time, { special: evt.special, location: evt.location });
+        html += eventCardHTML(evt.title, evt.time, { special: evt.special, location: evt.location, url: evt.url });
       }
     }
 
@@ -272,16 +292,23 @@ function renderUpcoming(upcoming) {
     var evt = upcoming[i];
     var offSite = isOffSite(evt.location);
     var locName = offSite ? extractLocationName(evt.location) : null;
+    var hasLink = !!evt.url;
 
-    html += '<div class="upcoming-card">';
+    if (hasLink) html += '<a class="upcoming-link" href="' + esc(evt.url) + '" target="_blank" rel="noopener">';
+    html += '<div class="upcoming-card' + (hasLink ? ' clickable' : '') + '">';
     html += '<div class="upcoming-date-badge">';
     html += '<div class="upcoming-date-text">' + esc(evt.date) + '</div>';
     html += '<div class="upcoming-time-text">' + esc(evt.time) + '</div>';
     html += '</div><div>';
     html += '<div class="upcoming-title"><span class="star">★</span>' + esc(evt.title) + '</div>';
-    if (evt.desc) html += '<div class="upcoming-desc">' + esc(evt.desc) + '</div>';
+    if (evt.desc) {
+      // Strip the URL from the displayed description so it doesn't show raw
+      var cleanDesc = evt.desc.replace(/https?:\/\/[^\s<>"]+/gi, '').replace(/<[^>]+>/g, '').trim();
+      if (cleanDesc) html += '<div class="upcoming-desc">' + esc(cleanDesc) + '</div>';
+    }
     if (locName) html += '<div class="upcoming-location"><span>📍</span> hosted at ' + esc(locName) + '</div>';
     html += '</div></div>';
+    if (hasLink) html += '</a>';
   }
 
   list.innerHTML = html;
@@ -347,6 +374,7 @@ function fetchCalendarEvents() {
         var title = item.summary || 'Event';
         var loc = item.location || null;
         var desc = item.description || '';
+        var url = extractUrl(desc);
 
         var timeStr = item.start.dateTime
           ? start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
@@ -360,6 +388,7 @@ function fetchCalendarEvents() {
             time: timeStr,
             special: !isRecurring,
             location: loc,
+            url: !isRecurring ? url : null,
             sortTime: start.getTime()
           });
         }
@@ -373,7 +402,8 @@ function fetchCalendarEvents() {
             date: start.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
             time: timeStr,
             desc: desc,
-            location: loc
+            location: loc,
+            url: url
           });
         }
       }
